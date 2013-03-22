@@ -1,0 +1,161 @@
+#!/bin/bash
+##
+#########################################################################################
+conf=/etc/logcheck.conf
+Mail=/usr/logcheck/bin/sendEmail
+
+delay=$(grep delay $conf | awk -F'=' '{print $2}')
+
+
+
+email_enabled=$(grep -A1 '\[email\]' $conf  | tail -1 | cut -d= -f2)
+if [ $email_enabled ] ;then
+        province=$(grep province $conf | cut -d= -f2)
+        project=$(grep project $conf | cut -d= -f2)
+        smtp_server=$(grep smtp_server $conf | cut -d= -f2)
+        send_from=$(grep send_from $conf | cut -d= -f2)
+        send_to=$(grep send_to $conf | cut -d= -f2)
+        send_cc=$(grep send_cc $conf | cut -d= -f2)
+        send_user=$(grep send_user $conf | cut -d= -f2)
+        send_password=$(grep send_password $conf | cut -d= -f2)
+fi
+
+
+
+echo $$ > /var/run/logcheck.pid
+log=/var/log/logcheck.log
+touch $log
+
+write_log()
+{
+        echo -e "$(date +%Y-%m-%d)\t$(date +%H:%M:%S) : $1" >> $log
+}
+
+send_email()
+{
+        write_log "Send Email"
+        $Mail -s $smtp_server -f $send_from -t $send_to -cc "$send_cc" -u "$province$project$1" -m "$1" -xu $send_user -xp $send_password >/dev/null
+        if [ $? -eq 0 ];then
+                write_log "Send Email Successed"
+        else
+                write_log "Send Email Failed"
+        fi
+
+}
+
+
+today=$(date +'%Y.%m.%d')
+syslog=/var/log/messages
+tomcatlog=/opt/tomcat/logs/MKey3GProject.out.${today}
+
+get_seconds()
+{
+	hour=$(echo $1 | cut -d':' -f1)
+	min=$(echo $1 | cut -d':' -f2)
+	sec=$(echo $1 | cut -d':' -f3)
+	echo "$hour * 3600 + $min * 60 + $sec" | bc -l
+}
+
+now=$(date +'%H:%M:%S')
+if [ -f $syslog ];then
+	messagetime=$(tail -1 $syslog | awk '{print $3}')
+else
+	write_log  "WARNING:system has no log"
+	send_email "WARNING:system has no log"
+fi
+
+if [ -f $tomcatlog ];then
+	tomcatlogtime=$(tail -1 $tomcatlog | cut -d',' -f1)
+else
+	write_log  "WARNING:tomcat has no log"
+	send_email "WARNING:tomcat has no log"
+fi
+
+nowseconds=$(get_seconds $now)
+
+test -z $messagetime || {
+	messageseconds=$(get_seconds $messagetime)
+}
+
+test -z $tomcatlogtime || {
+	tomcatlogseconds=$(get_seconds $tomcatlogseconds)
+}
+
+test -z $messageseconds || {
+	if [ $(expr $nowseconds - $messageseconds) -gt $delay ];then
+		write_log  "system log is not ok"
+		send_email "WARNING:more than one hour has no system log"
+	else
+		write_log  "system log is ok"
+	fi
+}
+
+test -z $tomcatlogseconds || {
+	if [ $(expr $nowseconds - $tomcatlogseconds) -gt $delay ];then
+		write_log  "tomcat log is not ok"
+		send_email "WARNING:more than one hour has to tomcatlog"
+	else
+		write_log  "tomcat log is ok"
+	fi
+}
+
+test -f $syslog && {
+	if grep -q "exception Emask" $syslog;then 
+		timestamp=$(grep "exception Emask" $syslog | tail -1 | awk '{print $1$2$3}')
+		if [ -f /tmp/.timestamp ];then 
+			oldstamp=$(tail -1 /tmp/.timestamp)
+			if [ "$timestamp" != "$oldstamp" ];then
+				echo $timestamp >> /tmp/.timestamp
+				write_log "ata:exception"
+				send_email "WARNING:ata exception Emask"
+			fi
+		else
+			echo $timestamp >> /tmp/.timestamp
+			write_log "ata:exception"
+			send_email "WARNING:ata exception Emask"
+		fi
+	else
+		write_log "ata:is ok"
+	fi
+}
+
+test -f $tomcatlog && {
+        if grep -qi "outofmemory" $tomcatlog;then
+                timestamp=$(grep -i "outofmemory" $tomcatlog | tail -1 | awk '{print $1$2$3}')
+                if [ -f /tmp/.timestamp2 ];then
+                        oldstamp=$(tail -1 /tmp/.timestamp2)
+                        if [ "$timestamp" != "$oldstamp" ];then
+                                echo $timestamp >> /tmp/.timestamp2
+                                write_log "tomcat:OutOfMemory"
+                                send_email "WARNING:tomcat outofmemory"
+                        fi
+                else
+                        echo $timestamp >> /tmp/.timestamp2
+                        write_log "tomcat:outofmemory"
+                        send_email "WARNING:tomcat outofmemory"
+                fi
+        else
+                write_log "tomcat:memory is ok"
+        fi
+}
+
+test -f $tomcatlog && {
+        if grep -qi "Cannot allocate memory" $tomcatlog;then
+                timestamp=$(grep -i "Cannot allocate memory" $tomcatlog | tail -1 | awk '{print $1$2$3}')
+                if [ -f /tmp/.timestamp3 ];then
+                        oldstamp=$(tail -1 /tmp/.timestamp3)
+                        if [ "$timestamp" != "$oldstamp" ];then
+                                echo $timestamp >> /tmp/.timestamp3
+                                write_log "tomcat:Cannot allocate memory"
+                                send_email "WARNING:tomcat Cannot allocate memory"
+                        fi
+                else
+                        echo $timestamp >> /tmp/.timestamp3
+                        write_log "tomcat:annot allocate memory"
+                        send_email "WARNING:tomcat Cannot allocate memory"
+                fi
+        else
+                write_log "tomcat:memory is ok"
+        fi
+}
+

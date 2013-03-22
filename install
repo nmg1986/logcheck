@@ -1,0 +1,21 @@
+#!/bin/bash
+
+. /etc/rc.status
+
+echo -ne "\033[32mInstall Logcheck Daemon\033[m"
+
+if [ ! -d /usr/logcheck ];then
+	mkdir /usr/logcheck
+	mkdir /usr/logcheck/bin
+	mkdir /usr/logcheck/conf
+fi
+install bin/logcheck /usr/logcheck/bin
+install bin/sendEmail /usr/logcheck/bin 
+install bin/logcheck-init /etc/init.d/logcheck
+ln -sf /etc/init.d/logcheck /usr/sbin/rclogcheck
+install etc/logcheck.conf /usr/logcheck/conf
+ln -sf /usr/logcheck/conf/logcheck.conf /etc
+
+rc_status -v 
+
+
